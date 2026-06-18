@@ -2,6 +2,8 @@
 
 A minimal terminal-based journal for writing, organizing, and reviewing notes from the command line.
 
+Terminal Journal is intended to be a small productivity tool for fast daily logging without opening a full notes app. It keeps the workflow lightweight and beginner-friendly while leaving room for search, tags, exports, themes, and richer review tools.
+
 ## Features
 
 - Create timestamped Markdown journal entries.
