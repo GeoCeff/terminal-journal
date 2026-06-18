@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "terminal-journal"
+version = "0.1.0"
+description = "A minimal terminal-based journal for writing and reviewing Markdown notes."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "GeoCeff" }]
+keywords = ["journal", "cli", "notes", "terminal", "productivity"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Office/Business :: News/Diary",
+]
+
+[project.scripts]
+journal = "terminal_journal.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["terminal_journal*"]
