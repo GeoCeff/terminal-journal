@@ -203,6 +203,55 @@ class CliTests(unittest.TestCase):
             self.assertIn("Chosen", stdout.getvalue())
             self.assertNotIn("Boring", stdout.getvalue())
 
+    def test_list_json_outputs_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            create_entry(journal_dir, "Json note", ("api",), now=datetime.fromisoformat("2026-06-18T09:00:00+08:00"))
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "list", "--json"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn('"body": "Json note"', stdout.getvalue())
+
+    def test_tag_add_appends_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            entry = create_entry(journal_dir, "Tagged", ("old",), now=datetime.fromisoformat("2026-06-18T09:00:00+08:00"))
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "tag", "add", entry.id, "new"])
+
+            edited = find_entry(journal_dir, entry.id)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(edited.tags, ("new", "old"))
+
+    def test_doctor_reports_valid_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            create_entry(journal_dir, "Healthy", (), now=datetime.fromisoformat("2026-06-18T09:00:00+08:00"))
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "doctor"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("0 problem", stdout.getvalue())
+
+    def test_export_json_outputs_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            create_entry(journal_dir, "Json export", (), now=datetime.fromisoformat("2026-06-18T09:00:00+08:00"))
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "export", "--format", "json"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn('"body": "Json export"', stdout.getvalue())
+
     def test_show_missing_entry_returns_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             stderr = io.StringIO()

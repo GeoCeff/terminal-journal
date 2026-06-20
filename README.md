@@ -16,7 +16,11 @@ Terminal Journal is intended to be a small productivity tool for fast daily logg
 - Review a random entry, today's historical entries, and writing streaks.
 - Import existing text or Markdown files as entries.
 - Export all entries into one Markdown file for backup or review.
-- Back up the raw journal folder.
+- Export Markdown, JSON, or HTML.
+- Back up, restore, archive, validate, and Git-sync the raw journal folder.
+- Extract Markdown todos from entries.
+- Open a simple HTML journal view in a browser.
+- Encrypt and decrypt single files with a passphrase.
 - Switch output themes with `plain`, `cutesy`, or `techy`.
 
 ## Quick Start
@@ -42,25 +46,38 @@ journal --dir C:\Users\You\Documents\MyJournal new --text "Private entry"
 ## Commands
 
 ```text
+journal init
+journal config [KEY VALUE]
 journal new [--text TEXT] [--title TITLE] [--mood MOOD] [--tag TAG] [--favorite] [--template NAME]
-journal list [--tag TAG] [--mood MOOD] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--favorites] [--limit N]
+journal list [--tag TAG] [--mood MOOD] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--favorites] [--limit N] [--json]
 journal today
 journal show ENTRY_ID
-journal search QUERY [--tag TAG] [--mood MOOD]
+journal search QUERY [--tag TAG] [--mood MOOD] [--highlight]
 journal random [--favorites]
 journal on-this-day
-journal edit ENTRY_ID [--text TEXT] [--title TITLE] [--mood MOOD] [--tag TAG] [--favorite | --unfavorite]
+journal edit ENTRY_ID [--text TEXT] [--title TITLE] [--mood MOOD] [--tag TAG] [--favorite | --unfavorite] [--editor [EDITOR]]
+journal tag add|remove ENTRY_ID TAG...
 journal delete ENTRY_ID --yes
 journal tags
 journal moods
-journal stats
+journal mood-trend [--by day|month]
+journal stats [--year YYYY] [--month M]
 journal streak
-journal calendar [--year YYYY] [--month M]
+journal calendar [--year YYYY] [--month M] [--heatmap]
 journal prompt
-journal templates
-journal export [--output FILE]
-journal import FILE [--title TITLE] [--mood MOOD] [--tag TAG]
+journal templates [list|add|delete] [NAME] [TEXT]
+journal export [--format markdown|json|html] [--output FILE]
+journal import FILE_OR_FOLDER [--folder] [--title TITLE] [--mood MOOD] [--tag TAG]
 journal backup [--output DIR]
+journal restore DIR [--yes]
+journal archive [--before YYYY-MM-DD] [--output DIR]
+journal doctor
+journal todo [--all]
+journal sync [--message MESSAGE]
+journal web [--output FILE]
+journal remind [--time HH:MM]
+journal encrypt INPUT OUTPUT
+journal decrypt INPUT OUTPUT
 ```
 
 If `journal new` is run without `--text`, it reads the entry body from standard input.
@@ -90,6 +107,7 @@ The themes are dependency-free ANSI terminal styles:
 
 ```powershell
 journal templates
+journal templates add standup "Yesterday:\nToday:\nBlocked:"
 journal new --template daily
 journal new --template debug --tag engineering
 ```
@@ -122,11 +140,7 @@ python -m unittest discover -s tests
 
 ## Roadmap
 
-- Add configurable templates.
 - Add fuzzy search and highlighted search terms.
-- Add import from exported Markdown.
-- Add recurring reminders.
-- Add optional encryption for private journals.
 - Publish packaging instructions once the CLI is stable.
 
 ## License
