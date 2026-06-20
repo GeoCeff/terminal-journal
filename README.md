@@ -13,6 +13,8 @@ Terminal Journal is intended to be a small productivity tool for fast daily logg
 - List, show, search, edit, and delete entries from the terminal.
 - Filter entries by tag, mood, date range, or favorites.
 - View tag counts, mood counts, stats, and a monthly calendar.
+- Review a random entry, today's historical entries, and writing streaks.
+- Import existing text or Markdown files as entries.
 - Export all entries into one Markdown file for backup or review.
 - Back up the raw journal folder.
 - Switch output themes with `plain`, `cutesy`, or `techy`.
@@ -25,6 +27,8 @@ journal --theme cutesy new --title "Tiny win" --mood focused --text "Shipped the
 journal --theme techy list --favorites
 journal search shipped
 journal stats
+journal streak
+journal random --favorites
 journal calendar
 journal export --output journal-export.md
 ```
@@ -43,15 +47,19 @@ journal list [--tag TAG] [--mood MOOD] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
 journal today
 journal show ENTRY_ID
 journal search QUERY [--tag TAG] [--mood MOOD]
+journal random [--favorites]
+journal on-this-day
 journal edit ENTRY_ID [--text TEXT] [--title TITLE] [--mood MOOD] [--tag TAG] [--favorite | --unfavorite]
 journal delete ENTRY_ID --yes
 journal tags
 journal moods
 journal stats
+journal streak
 journal calendar [--year YYYY] [--month M]
 journal prompt
 journal templates
 journal export [--output FILE]
+journal import FILE [--title TITLE] [--mood MOOD] [--tag TAG]
 journal backup [--output DIR]
 ```
 

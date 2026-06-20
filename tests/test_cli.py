@@ -4,7 +4,7 @@ import io
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from terminal_journal.cli import create_entry, find_entry, load_entries, main, normalize_tags
@@ -144,6 +144,64 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("Entries: 1", output)
             self.assertIn("Words: 2", output)
+
+    def test_import_creates_entry_from_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "note.md"
+            journal_dir = root / "journal"
+            source.write_text("Imported body", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "import", str(source), "--tag", "old"])
+
+            entries = load_entries(journal_dir)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(entries[0].title, "note")
+            self.assertEqual(entries[0].tags, ("old",))
+            self.assertEqual(entries[0].body, "Imported body")
+
+    def test_streak_counts_consecutive_days(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            today = date.today()
+            create_entry(journal_dir, "Today", (), now=datetime.combine(today, datetime.min.time()).astimezone())
+            create_entry(
+                journal_dir,
+                "Yesterday",
+                (),
+                now=datetime.combine(today - timedelta(days=1), datetime.min.time()).astimezone(),
+            )
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "streak"])
+
+            output = stdout.getvalue()
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Current streak: 2 days", output)
+            self.assertIn("Longest streak: 2 days", output)
+
+    def test_random_can_pick_only_favorites(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            create_entry(journal_dir, "Boring", (), now=datetime.fromisoformat("2026-06-18T09:00:00+08:00"))
+            create_entry(
+                journal_dir,
+                "Chosen",
+                (),
+                now=datetime.fromisoformat("2026-06-18T10:00:00+08:00"),
+                favorite=True,
+            )
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "random", "--favorites"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Chosen", stdout.getvalue())
+            self.assertNotIn("Boring", stdout.getvalue())
 
     def test_show_missing_entry_returns_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

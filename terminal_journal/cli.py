@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 import calendar
 import os
+import random
 import re
 import shutil
 import sys
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 
@@ -369,6 +370,28 @@ def command_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_random(args: argparse.Namespace) -> int:
+    entries = filter_entries(load_entries(args.dir), favorites_only=args.favorites)
+    if not entries:
+        print(f"{symbol(args, 'empty')} No entries found.")
+        return 0
+
+    print(entry_summary(random.choice(entries), args))
+    return 0
+
+
+def command_on_this_day(args: argparse.Namespace) -> int:
+    today_key = date.today().strftime("%m-%d")
+    matches = [entry for entry in load_entries(args.dir) if entry.created[5:10] == today_key]
+    if not matches:
+        print(f"{symbol(args, 'empty')} No entries found for this day.")
+        return 0
+
+    for entry in matches:
+        print(entry_summary(entry, args))
+    return 0
+
+
 def command_edit(args: argparse.Namespace) -> int:
     entry = find_entry(args.dir, args.entry_id)
     if not entry:
@@ -463,6 +486,38 @@ def command_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def entry_dates(entries: list[Entry]) -> set[date]:
+    days = set()
+    for entry in entries:
+        try:
+            days.add(date.fromisoformat(entry.created[:10]))
+        except ValueError:
+            pass
+    return days
+
+
+def command_streak(args: argparse.Namespace) -> int:
+    days = entry_dates(load_entries(args.dir))
+    today = date.today()
+    current = 0
+    cursor = today
+    while cursor in days:
+        current += 1
+        cursor -= timedelta(days=1)
+
+    longest = 0
+    run = 0
+    previous = None
+    for day in sorted(days):
+        run = run + 1 if previous and day == previous + timedelta(days=1) else 1
+        longest = max(longest, run)
+        previous = day
+
+    print(f"Current streak: {current} day{'s' if current != 1 else ''}")
+    print(f"Longest streak: {longest} day{'s' if longest != 1 else ''}")
+    return 0
+
+
 def command_calendar(args: argparse.Namespace) -> int:
     try:
         year = args.year or date.today().year
@@ -530,6 +585,23 @@ def command_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_import(args: argparse.Namespace) -> int:
+    if not args.input.exists():
+        print(f"error: input file not found: {args.input}", file=sys.stderr)
+        return 1
+
+    try:
+        body = args.input.read_text(encoding="utf-8")
+        tags = normalize_tags(args.tag)
+        entry = create_entry(args.dir, body, tags, title=args.title or args.input.stem, mood=args.mood)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    print(style(args, "good", f"Imported {args.input} as {entry.id}"))
+    return 0
+
+
 def command_backup(args: argparse.Namespace) -> int:
     if not args.dir.exists():
         print("error: journal directory does not exist", file=sys.stderr)
@@ -588,6 +660,13 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--mood", help="Only search entries with this mood.")
     search_parser.set_defaults(func=command_search)
 
+    random_parser = subparsers.add_parser("random", help="Show a random entry.")
+    random_parser.add_argument("--favorites", action="store_true", help="Only pick from starred entries.")
+    random_parser.set_defaults(func=command_random)
+
+    on_this_day_parser = subparsers.add_parser("on-this-day", help="Show entries written on today's month/day.")
+    on_this_day_parser.set_defaults(func=command_on_this_day)
+
     edit_parser = subparsers.add_parser("edit", help="Update entry metadata or replace body text.")
     edit_parser.add_argument("entry_id")
     edit_parser.add_argument("--text", help="Replacement entry text.")
@@ -608,6 +687,13 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--output", type=Path, help="Output Markdown file. Prints to stdout when omitted.")
     export_parser.set_defaults(func=command_export)
 
+    import_parser = subparsers.add_parser("import", help="Import a text or Markdown file as a new entry.")
+    import_parser.add_argument("input", type=Path)
+    import_parser.add_argument("--title", help="Entry title. Defaults to the input file name.")
+    import_parser.add_argument("--mood", default="", help="Mood label.")
+    import_parser.add_argument("--tag", action="append", help="Tag to add. Can be used more than once.")
+    import_parser.set_defaults(func=command_import)
+
     backup_parser = subparsers.add_parser("backup", help="Copy the journal folder to a backup folder.")
     backup_parser.add_argument("--output", type=Path, help="Backup directory.")
     backup_parser.set_defaults(func=command_backup)
@@ -620,6 +706,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     stats_parser = subparsers.add_parser("stats", help="Show journal stats.")
     stats_parser.set_defaults(func=command_stats)
+
+    streak_parser = subparsers.add_parser("streak", help="Show current and longest daily writing streaks.")
+    streak_parser.set_defaults(func=command_streak)
 
     calendar_parser = subparsers.add_parser("calendar", help="Show a month view with entry days highlighted.")
     calendar_parser.add_argument("--year", type=int, help="Calendar year.")
