@@ -6,6 +6,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from terminal_journal.cli import create_entry, find_entry, load_entries, main, normalize_tags
 
@@ -162,6 +163,22 @@ class CliTests(unittest.TestCase):
             self.assertEqual(entries[0].tags, ("old",))
             self.assertEqual(entries[0].body, "Imported body")
 
+    def test_folder_import_is_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "notes"
+            journal_dir = root / "journal"
+            source.mkdir()
+            (source / "a.md").write_text("A", encoding="utf-8")
+            (source / "b.md").write_text("B", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "import", str(source), "--folder"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(len(load_entries(journal_dir)), 2)
+
     def test_streak_counts_consecutive_days(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             journal_dir = Path(temp_dir)
@@ -239,6 +256,32 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertIn("0 problem", stdout.getvalue())
+
+    def test_archive_requires_before_date(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            create_entry(journal_dir, "Keep me", (), now=datetime.fromisoformat("2026-06-18T09:00:00+08:00"))
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "archive"])
+
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(len(load_entries(journal_dir)), 1)
+
+    def test_encrypt_decrypt_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            plain = root / "plain.txt"
+            encrypted = root / "plain.tj1"
+            decrypted = root / "plain.out"
+            plain.write_text("secret", encoding="utf-8")
+
+            with patch("getpass.getpass", return_value="pw"), redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["encrypt", str(plain), str(encrypted)]), 0)
+                self.assertEqual(main(["decrypt", str(encrypted), str(decrypted)]), 0)
+
+            self.assertEqual(decrypted.read_text(encoding="utf-8"), "secret")
 
     def test_export_json_outputs_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

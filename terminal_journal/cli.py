@@ -710,10 +710,13 @@ def command_import(args: argparse.Namespace) -> int:
     if not args.input.exists():
         print(f"error: input file not found: {args.input}", file=sys.stderr)
         return 1
+    if args.folder and not args.input.is_dir():
+        print(f"error: --folder needs a directory: {args.input}", file=sys.stderr)
+        return 2
 
     try:
         tags = normalize_tags(args.tag)
-        files = [path for path in args.input.rglob("*") if path.is_file()] if args.folder else [args.input]
+        files = sorted(path for path in args.input.rglob("*") if path.is_file()) if args.folder else [args.input]
         for path in files:
             body = path.read_text(encoding="utf-8")
             create_entry(args.dir, body, tags, title=args.title or path.stem, mood=args.mood)
@@ -741,6 +744,9 @@ def command_backup(args: argparse.Namespace) -> int:
 
 
 def command_restore(args: argparse.Namespace) -> int:
+    if not args.input.exists():
+        print(f"error: backup not found: {args.input}", file=sys.stderr)
+        return 1
     if args.dir.exists() and any(args.dir.iterdir()) and not args.yes:
         print("Refusing to restore over a non-empty journal without --yes.")
         return 2
@@ -752,10 +758,19 @@ def command_restore(args: argparse.Namespace) -> int:
 
 
 def command_archive(args: argparse.Namespace) -> int:
+    if not args.before:
+        print("Refusing to archive without --before YYYY-MM-DD.")
+        return 2
+    try:
+        before = normalize_date(args.before)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
     archive_dir = args.output or args.dir / "archive"
     moved = 0
     for entry in load_entries(args.dir):
-        if args.before and entry.created[:10] >= args.before:
+        if entry.created[:10] >= before:
             continue
         target = archive_dir / entry.created[:4] / entry.path.name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -811,6 +826,9 @@ def command_todo(args: argparse.Namespace) -> int:
 
 def command_sync(args: argparse.Namespace) -> int:
     subprocess.check_call(["git", "add", str(args.dir)])
+    if not subprocess.check_output(["git", "status", "--porcelain", "--", str(args.dir)]).strip():
+        print("No journal changes to sync.")
+        return 0
     subprocess.check_call(["git", "commit", "-m", args.message])
     subprocess.check_call(["git", "push"])
     return 0
@@ -835,7 +853,12 @@ def kdf(passphrase: str, salt: bytes) -> bytes:
 
 
 def xor_crypt(data: bytes, key: bytes) -> bytes:
-    return bytes(byte ^ hmac.new(key, i.to_bytes(8, "big"), hashlib.sha256).digest()[j % 32] for i, byte in enumerate(data) for j in [i])
+    out = bytearray()
+    for block, offset in enumerate(range(0, len(data), 32)):
+        # ponytail: HMAC stream is fine for local file privacy; use a vetted crypto lib if this becomes a real secret store.
+        stream = hmac.new(key, block.to_bytes(8, "big"), hashlib.sha256).digest()
+        out.extend(byte ^ stream[i] for i, byte in enumerate(data[offset : offset + 32]))
+    return bytes(out)
 
 
 def command_encrypt(args: argparse.Namespace) -> int:
