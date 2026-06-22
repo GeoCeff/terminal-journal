@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from terminal_journal.cli import create_entry, find_entry, load_entries, main, normalize_tags
+from terminal_journal.cli import create_entry, find_entry, load_entries, main, normalize_tags, read_json
 
 
 class CliTests(unittest.TestCase):
@@ -257,6 +257,50 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("0 problem", stdout.getvalue())
 
+    def test_list_skips_broken_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            create_entry(journal_dir, "Good", (), now=datetime.fromisoformat("2026-06-18T09:00:00+08:00"))
+            (journal_dir / "bad.md").write_text("broken", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "list"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Good", stdout.getvalue())
+
+    def test_doctor_flags_unreadable_entry_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            (journal_dir / "bad.md").write_bytes(b"\xff")
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "doctor"])
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("cannot be read", stdout.getvalue())
+
+    def test_doctor_flags_bad_created_date(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            (journal_dir / "bad.md").write_text("---\nid: bad\ncreated: nope\ntags:\n---\n\nBad\n", encoding="utf-8")
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(["--dir", str(journal_dir), "doctor"])
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("1 problem", stdout.getvalue())
+
+    def test_bad_json_config_falls_back_to_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "bad.json"
+            path.write_text("{", encoding="utf-8")
+
+            self.assertEqual(read_json(path, {"ok": True}), {"ok": True})
+
     def test_archive_requires_before_date(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             journal_dir = Path(temp_dir)
@@ -282,6 +326,18 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(main(["decrypt", str(encrypted), str(decrypted)]), 0)
 
             self.assertEqual(decrypted.read_text(encoding="utf-8"), "secret")
+
+    def test_editor_launch_error_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            journal_dir = Path(temp_dir)
+            entry = create_entry(journal_dir, "Edit me", (), now=datetime.fromisoformat("2026-06-18T09:00:00+08:00"))
+            stderr = io.StringIO()
+
+            with patch("subprocess.call", side_effect=OSError("nope")), redirect_stderr(stderr):
+                exit_code = main(["--dir", str(journal_dir), "edit", entry.id, "--editor", "missing-editor"])
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("could not launch editor", stderr.getvalue())
 
     def test_export_json_outputs_json(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

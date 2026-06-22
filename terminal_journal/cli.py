@@ -96,7 +96,10 @@ def supports_color() -> bool:
 def read_json(path: Path, default):
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default
 
 
 def write_json(path: Path, data) -> None:
@@ -183,7 +186,7 @@ def create_entry(
     created = timestamp.isoformat(timespec="seconds")
     entry = Entry(entry_id, created, tags, body, path, title.strip(), mood.strip(), favorite)
     journal_dir.mkdir(parents=True, exist_ok=True)
-    path.write_text(format_entry(entry), encoding="utf-8")
+    write_entry(path, format_entry(entry))
     return entry
 
 
@@ -204,7 +207,10 @@ def format_entry(entry: Entry) -> str:
 
 
 def parse_entry(path: Path) -> Entry:
-    raw = path.read_text(encoding="utf-8")
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Entry cannot be read: {path}") from exc
     if not raw.startswith("---\n"):
         raise ValueError(f"Entry is missing metadata: {path}")
 
@@ -222,6 +228,10 @@ def parse_entry(path: Path) -> Entry:
 
     entry_id = values.get("id") or path.stem
     created = values.get("created") or ""
+    try:
+        date.fromisoformat(created[:10])
+    except ValueError as exc:
+        raise ValueError(f"Entry has invalid created date: {path}") from exc
     tags = tuple(tag.strip() for tag in values.get("tags", "").split(",") if tag.strip())
     favorite = values.get("favorite", "false").lower() in {"1", "true", "yes", "y"}
     return Entry(
@@ -237,14 +247,26 @@ def parse_entry(path: Path) -> Entry:
 
 
 def save_entry(entry: Entry) -> None:
-    entry.path.write_text(format_entry(entry), encoding="utf-8")
+    write_entry(entry.path, format_entry(entry))
 
 
-def load_entries(journal_dir: Path) -> list[Entry]:
+def write_entry(path: Path, content: str) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def load_entries(journal_dir: Path, strict: bool = True) -> list[Entry]:
     if not journal_dir.exists():
         return []
 
-    entries = [parse_entry(path) for path in journal_dir.glob("*.md")]
+    entries = []
+    for path in journal_dir.glob("*.md"):
+        try:
+            entries.append(parse_entry(path))
+        except ValueError:
+            if strict:
+                raise
     return sorted(entries, key=lambda entry: entry.created, reverse=True)
 
 
@@ -253,7 +275,7 @@ def find_entry(journal_dir: Path, entry_id: str) -> Entry | None:
     if direct.exists():
         return parse_entry(direct)
 
-    matches = [entry for entry in load_entries(journal_dir) if entry.id.startswith(entry_id)]
+    matches = [entry for entry in load_entries(journal_dir, strict=False) if entry.id.startswith(entry_id)]
     if len(matches) == 1:
         return matches[0]
     return None
@@ -327,7 +349,7 @@ def command_new(args: argparse.Namespace) -> int:
 def command_list(args: argparse.Namespace) -> int:
     try:
         entries = filter_entries(
-            load_entries(args.dir),
+            load_entries(args.dir, strict=False),
             tag=args.tag,
             mood=args.mood,
             since=normalize_date(args.since),
@@ -393,7 +415,7 @@ def command_show(args: argparse.Namespace) -> int:
 
 def command_search(args: argparse.Namespace) -> int:
     try:
-        entries = filter_entries(load_entries(args.dir), tag=args.tag, mood=args.mood)
+        entries = filter_entries(load_entries(args.dir, strict=False), tag=args.tag, mood=args.mood)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -422,7 +444,7 @@ def command_search(args: argparse.Namespace) -> int:
 
 
 def command_random(args: argparse.Namespace) -> int:
-    entries = filter_entries(load_entries(args.dir), favorites_only=args.favorites)
+    entries = filter_entries(load_entries(args.dir, strict=False), favorites_only=args.favorites)
     if not entries:
         print(f"{symbol(args, 'empty')} No entries found.")
         return 0
@@ -433,7 +455,7 @@ def command_random(args: argparse.Namespace) -> int:
 
 def command_on_this_day(args: argparse.Namespace) -> int:
     today_key = date.today().strftime("%m-%d")
-    matches = [entry for entry in load_entries(args.dir) if entry.created[5:10] == today_key]
+    matches = [entry for entry in load_entries(args.dir, strict=False) if entry.created[5:10] == today_key]
     if not matches:
         print(f"{symbol(args, 'empty')} No entries found for this day.")
         return 0
@@ -451,7 +473,11 @@ def command_edit(args: argparse.Namespace) -> int:
 
     if args.editor:
         editor = args.editor if isinstance(args.editor, str) else os.environ.get("EDITOR") or "notepad"
-        return subprocess.call([editor, str(entry.path)])
+        try:
+            return subprocess.call([editor, str(entry.path)])
+        except OSError as exc:
+            print(f"error: could not launch editor: {exc}", file=sys.stderr)
+            return 1
 
     updates = {}
     if args.title is not None:
@@ -511,7 +537,7 @@ def command_tag(args: argparse.Namespace) -> int:
 
 def command_tags(args: argparse.Namespace) -> int:
     counts: dict[str, int] = {}
-    for entry in load_entries(args.dir):
+    for entry in load_entries(args.dir, strict=False):
         for tag in entry.tags:
             counts[tag] = counts.get(tag, 0) + 1
 
@@ -526,7 +552,7 @@ def command_tags(args: argparse.Namespace) -> int:
 
 def command_moods(args: argparse.Namespace) -> int:
     counts: dict[str, int] = {}
-    for entry in load_entries(args.dir):
+    for entry in load_entries(args.dir, strict=False):
         if entry.mood:
             counts[entry.mood] = counts.get(entry.mood, 0) + 1
 
@@ -546,7 +572,7 @@ def command_stats(args: argparse.Namespace) -> int:
         year = args.year or date.today().year
         since = f"{year:04d}-{args.month:02d}-01"
         until = f"{year:04d}-{args.month:02d}-{calendar.monthrange(year, args.month)[1]:02d}"
-    entries = filter_entries(load_entries(args.dir), since=since, until=until)
+    entries = filter_entries(load_entries(args.dir, strict=False), since=since, until=until)
     words = sum(len(entry.body.split()) for entry in entries)
     favorites = sum(1 for entry in entries if entry.favorite)
     tag_count = len({tag for entry in entries for tag in entry.tags})
@@ -566,7 +592,7 @@ def command_stats(args: argparse.Namespace) -> int:
 
 def command_mood_trend(args: argparse.Namespace) -> int:
     buckets: dict[str, dict[str, int]] = {}
-    for entry in load_entries(args.dir):
+    for entry in load_entries(args.dir, strict=False):
         if not entry.mood:
             continue
         key = entry.created[:7] if args.by == "month" else entry.created[:10]
@@ -588,7 +614,7 @@ def entry_dates(entries: list[Entry]) -> set[date]:
 
 
 def command_streak(args: argparse.Namespace) -> int:
-    days = entry_dates(load_entries(args.dir))
+    days = entry_dates(load_entries(args.dir, strict=False))
     today = date.today()
     current = 0
     cursor = today
@@ -614,7 +640,7 @@ def command_calendar(args: argparse.Namespace) -> int:
         year = args.year or date.today().year
         month = args.month or date.today().month
         counts: dict[int, int] = {}
-        for entry in load_entries(args.dir):
+        for entry in load_entries(args.dir, strict=False):
             created = date.fromisoformat(entry.created[:10])
             if created.year == year and created.month == month:
                 counts[created.day] = counts.get(created.day, 0) + 1
@@ -668,7 +694,7 @@ def command_templates(args: argparse.Namespace) -> int:
 
 
 def command_export(args: argparse.Namespace) -> int:
-    entries = list(reversed(load_entries(args.dir)))
+    entries = list(reversed(load_entries(args.dir, strict=False)))
     output = args.output
     if args.format == "json":
         content = json.dumps([entry_to_dict(entry) for entry in entries], indent=2) + "\n"
@@ -720,7 +746,7 @@ def command_import(args: argparse.Namespace) -> int:
         for path in files:
             body = path.read_text(encoding="utf-8")
             create_entry(args.dir, body, tags, title=args.title or path.stem, mood=args.mood)
-    except ValueError as exc:
+    except (UnicodeDecodeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
@@ -732,6 +758,9 @@ def command_backup(args: argparse.Namespace) -> int:
     if not args.dir.exists():
         print("error: journal directory does not exist", file=sys.stderr)
         return 1
+    if not args.dir.is_dir():
+        print("error: journal path is not a directory", file=sys.stderr)
+        return 2
 
     destination = args.output or Path(f"{args.dir.name}-backup-{datetime.now().strftime(ID_FORMAT)}")
     if destination.exists():
@@ -747,6 +776,9 @@ def command_restore(args: argparse.Namespace) -> int:
     if not args.input.exists():
         print(f"error: backup not found: {args.input}", file=sys.stderr)
         return 1
+    if not args.input.is_dir():
+        print(f"error: backup is not a directory: {args.input}", file=sys.stderr)
+        return 2
     if args.dir.exists() and any(args.dir.iterdir()) and not args.yes:
         print("Refusing to restore over a non-empty journal without --yes.")
         return 2
@@ -769,7 +801,7 @@ def command_archive(args: argparse.Namespace) -> int:
 
     archive_dir = args.output or args.dir / "archive"
     moved = 0
-    for entry in load_entries(args.dir):
+    for entry in load_entries(args.dir, strict=False):
         if entry.created[:10] >= before:
             continue
         target = archive_dir / entry.created[:4] / entry.path.name
@@ -816,7 +848,7 @@ def command_config(args: argparse.Namespace) -> int:
 
 def command_todo(args: argparse.Namespace) -> int:
     pattern = re.compile(r"^\s*[-*]\s+\[( |x)\]\s+(.*)", re.IGNORECASE)
-    for entry in load_entries(args.dir):
+    for entry in load_entries(args.dir, strict=False):
         for line in entry.body.splitlines():
             match = pattern.match(line)
             if match and (args.all or match.group(1) == " "):
@@ -825,13 +857,17 @@ def command_todo(args: argparse.Namespace) -> int:
 
 
 def command_sync(args: argparse.Namespace) -> int:
-    subprocess.check_call(["git", "add", str(args.dir)])
-    if not subprocess.check_output(["git", "status", "--porcelain", "--", str(args.dir)]).strip():
-        print("No journal changes to sync.")
+    try:
+        subprocess.check_call(["git", "add", str(args.dir)])
+        if not subprocess.check_output(["git", "status", "--porcelain", "--", str(args.dir)]).strip():
+            print("No journal changes to sync.")
+            return 0
+        subprocess.check_call(["git", "commit", "-m", args.message])
+        subprocess.check_call(["git", "push"])
         return 0
-    subprocess.check_call(["git", "commit", "-m", args.message])
-    subprocess.check_call(["git", "push"])
-    return 0
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"error: git sync failed: {exc}", file=sys.stderr)
+        return 1
 
 
 def command_web(args: argparse.Namespace) -> int:
@@ -862,21 +898,28 @@ def xor_crypt(data: bytes, key: bytes) -> bytes:
 
 
 def command_encrypt(args: argparse.Namespace) -> int:
+    if not args.input.is_file():
+        print(f"error: input file not found: {args.input}", file=sys.stderr)
+        return 1
     passphrase = getpass.getpass("Passphrase: ")
     salt = os.urandom(16)
     data = args.input.read_bytes()
     key = kdf(passphrase, salt)
     cipher = xor_crypt(data, key)
     tag = hmac.new(key, cipher, hashlib.sha256).digest()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(b"TJ1" + salt + tag + cipher)
     print(f"Encrypted {args.input} to {args.output}")
     return 0
 
 
 def command_decrypt(args: argparse.Namespace) -> int:
+    if not args.input.is_file():
+        print(f"error: input file not found: {args.input}", file=sys.stderr)
+        return 1
     passphrase = getpass.getpass("Passphrase: ")
     blob = args.input.read_bytes()
-    if not blob.startswith(b"TJ1"):
+    if not blob.startswith(b"TJ1") or len(blob) < 51:
         print("error: not a terminal-journal encrypted file", file=sys.stderr)
         return 2
     salt, tag, cipher = blob[3:19], blob[19:51], blob[51:]
@@ -884,6 +927,7 @@ def command_decrypt(args: argparse.Namespace) -> int:
     if not hmac.compare_digest(tag, hmac.new(key, cipher, hashlib.sha256).digest()):
         print("error: wrong passphrase or corrupt file", file=sys.stderr)
         return 2
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(xor_crypt(cipher, key))
     print(f"Decrypted {args.input} to {args.output}")
     return 0
