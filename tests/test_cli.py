@@ -12,6 +12,15 @@ from terminal_journal.cli import create_entry, find_entry, load_entries, main, n
 
 
 class CliTests(unittest.TestCase):
+    def test_version_flag_prints_version(self) -> None:
+        stdout = io.StringIO()
+
+        with self.assertRaises(SystemExit) as raised, redirect_stdout(stdout):
+            main(["--version"])
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("terminal-journal", stdout.getvalue())
+
     def test_create_entry_writes_markdown_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             journal_dir = Path(temp_dir)

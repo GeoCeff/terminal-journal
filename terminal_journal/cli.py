@@ -18,6 +18,8 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from terminal_journal import __version__
+
 
 DEFAULT_JOURNAL_DIR = "journal"
 CONFIG_FILE = ".terminal-journal.json"
@@ -943,6 +945,7 @@ def add_filter_arguments(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Write and review local Markdown journal entries.")
+    parser.add_argument("--version", action="version", version=f"terminal-journal {__version__}")
     parser.add_argument("--dir", type=Path, default=Path(DEFAULT_JOURNAL_DIR), help="Journal directory.")
     parser.add_argument("--theme", choices=sorted(THEMES), default="plain", help="Output theme.")
     subparsers = parser.add_subparsers(dest="command", required=True)
